@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Self-Playing Snake Game</title>
+  <style>
+    /* Basic reset and modern dark theme styling */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #1e1e1e;
+      color: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      text-align: center;
+      background: #2a2a2a;
+      padding: 20px 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    h1 {
+      margin-bottom: 20px;
+      font-size: 2rem;
+      letter-spacing: 1px;
+    }
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-bottom: 10px;
+      font-size: 1.2rem;
+    }
+    canvas {
+      background: #222;
+      border: 2px solid #444;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      margin-bottom: 20px;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    #startButton {
+      background: #28a745;
+      color: #fff;
+    }
+    #startButton:hover {
+      background: #218838;
+    }
+    #resetButton {
+      background: #dc3545;
+      color: #fff;
+    }
+    #resetButton:hover {
+      background: #c82333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Self-Playing Snake Game</h1>
+    <div class="stats">
+      <div id="score">Score: 0</div>
+      <div id="games">Games: 0</div>
+    </div>
+    <canvas id="gameCanvas" width="500" height="500"></canvas>
+    <div class="controls">
+      <button id="startButton">Start</button>
+      <button id="resetButton">Reset</button>
+    </div>
+  </div>
+
+  <script>
+    // Set up the canvas and grid
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const gridSize = 20;
+    const cellSize = canvas.width / gridSize; // 500/20 = 25
+
+    // Game state variables
+    let snake = [];
+    let food = {};
+    let score = 0;
+    let games = 0;
+    let direction = { dx: 1, dy: 0 }; // initial direction: right
+    let gameInterval = null;
+
+    // Initialize (or reinitialize) the game
+    function initGame() {
+      snake = [];
+      const startX = Math.floor(gridSize / 2);
+      const startY = Math.floor(gridSize / 2);
+      // Create an initial snake of length 3
+      for (let i = 0; i < 3; i++) {
+        snake.push({ x: startX - i, y: startY });
+      }
+      direction = { dx: 1, dy: 0 };
+      score = 0;
+      updateScore();
+      placeFood();
+    }
+
+    // Randomly place food on the grid (ensuring it does not appear on the snake)
+    function placeFood() {
+      let valid = false;
+      while (!valid) {
+        const newX = Math.floor(Math.random() * gridSize);
+        const newY = Math.floor(Math.random() * gridSize);
+        valid = !snake.some(segment => segment.x === newX && segment.y === newY);
+        if (valid) {
+          food = { x: newX, y: newY };
+        }
+      }
+    }
+
+    // The main game loop (called every tick)
+    function gameLoop() {
+      // Determine the next move automatically using a simple greedy algorithm
+      const newDir = chooseDirection();
+      if (newDir) {
+        direction = newDir;
+      } else {
+        endGame();
+        return;
+      }
+
+      // Compute the new head position
+      const head = snake[0];
+      const newHead = { x: head.x + direction.dx, y: head.y + direction.dy };
+
+      // Check for collisions with walls or the snake itself
+      if (
+        newHead.x < 0 ||
+        newHead.x >= gridSize ||
+        newHead.y < 0 ||
+        newHead.y >= gridSize ||
+        snake.some(segment => segment.x === newHead.x && segment.y === newHead.y)
+      ) {
+        endGame();
+        return;
+      }
+
+      // Add the new head to the snake
+      snake.unshift(newHead);
+
+      // Check if the snake has eaten the food
+      if (newHead.x === food.x && newHead.y === food.y) {
+        score++;
+        updateScore();
+        placeFood();
+      } else {
+        // Remove the tail unless food was eaten
+        snake.pop();
+      }
+
+      drawGame();
+    }
+
+    // Choose the next direction: look at all safe moves and pick the one that minimizes
+    // the Manhattan distance from the new head position to the food.
+    function chooseDirection() {
+      const head = snake[0];
+      const moves = [
+        { dx: 0, dy: -1 }, // up
+        { dx: 1, dy: 0 },  // right
+        { dx: 0, dy: 1 },  // down
+        { dx: -1, dy: 0 }  // left
+      ];
+      const possibleMoves = [];
+
+      for (const move of moves) {
+        const newX = head.x + move.dx;
+        const newY = head.y + move.dy;
+        // Check if the move is within bounds and does not hit the snake itself
+        if (newX < 0 || newX >= gridSize || newY < 0 || newY >= gridSize) continue;
+        if (snake.some(segment => segment.x === newX && segment.y === newY)) continue;
+        // Calculate Manhattan distance to the food
+        const distance = Math.abs(newX - food.x) + Math.abs(newY - food.y);
+        possibleMoves.push({ move, distance });
+      }
+
+      if (possibleMoves.length === 0) return null;
+      // Pick the move that brings the snake closest to the food
+      possibleMoves.sort((a, b) => a.distance - b.distance);
+      return possibleMoves[0].move;
+    }
+
+    // Draw the game: clear the canvas and draw the background, snake, and food.
+    function drawGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Background
+      ctx.fillStyle = "#222";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the snake
+      ctx.fillStyle = "#0f0";
+      for (const segment of snake) {
+        ctx.fillRect(segment.x * cellSize, segment.y * cellSize, cellSize, cellSize);
+      }
+
+      // Draw the food
+      ctx.fillStyle = "#f00";
+      ctx.fillRect(food.x * cellSize, food.y * cellSize, cellSize, cellSize);
+    }
+
+    // Update the score display
+    function updateScore() {
+      document.getElementById("score").textContent = "Score: " + score;
+    }
+
+    // Update the game counter display
+    function updateGames() {
+      document.getElementById("games").textContent = "Games: " + games;
+    }
+
+    // End the game: clear the interval, increment the game counter, and display a Game Over overlay.
+    function endGame() {
+      clearInterval(gameInterval);
+      gameInterval = null;
+      games++;
+      updateGames();
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#fff";
+      ctx.font = "40px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2);
+    }
+
+    // Event listener for the Start button
+    document.getElementById("startButton").addEventListener("click", function() {
+      if (!gameInterval) {
+        initGame();
+        drawGame();
+        gameInterval = setInterval(gameLoop, 100); // Game speed: one tick every 100ms
+      }
+    });
+
+    // Event listener for the Reset button: stops any current game and resets counters.
+    document.getElementById("resetButton").addEventListener("click", function() {
+      clearInterval(gameInterval);
+      gameInterval = null;
+      score = 0;
+      games = 0;
+      updateScore();
+      updateGames();
+      initGame();
+      drawGame();
+    });
+  </script>
+</body>
+</html>
